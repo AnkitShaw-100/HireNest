@@ -1,130 +1,168 @@
 import { useCallback, useState } from "react";
-import { AnimatePresence, motion } from "framer-motion";
+import { motion } from "framer-motion";
 import { jsPDF } from "jspdf";
-import { Trash2 } from "lucide-react";
+import { FileUp, Loader2, CheckCircle2, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
-import DropZone from "@/components/DropZone";
-import ImagePreview from "@/components/ImagePreview";
-import ConvertButton from "@/components/ConvertButton";
+import { Document, Packer, convertInchesToTwip } from "docx";
+import { saveAs } from "file-saver";
 import { Button } from "@/components/ui/button";
 
-const ImageToPdf = () => {
-  const [images, setImages] = useState([]);
+const WordToPdf = () => {
+  const [docFile, setDocFile] = useState(null);
   const [loading, setLoading] = useState(false);
 
 
-  const handleFilesAdded = useCallback((files) => {
-    const newImages = files.map((file) => ({
-      file,
-      url: URL.createObjectURL(file),
-    }));
+  const handleFileChange = useCallback(async (e) => {
+    const file = e.target.files?.[0];
 
-    setImages((prev) => [...prev, ...newImages]);
+    if (!file) return;
 
-    toast.success(`${files.length} image${files.length > 1 ? "s" : ""} added`);
+    const validTypes = [
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "application/msword",
+    ];
+
+    if (!validTypes.includes(file.type)) {
+      toast.error("Please select a Word document (.docx or .doc)");
+      return;
+    }
+
+    setDocFile(file);
+    toast.success(`Document loaded: ${file.name}`);
+    e.target.value = "";
   }, []);
 
-  const handleRemove = useCallback((index) => {
-    setImages((prev) => {
-      URL.revokeObjectURL(prev[index].url);
-      return prev.filter((_, i) => i !== index);
-    });
+  const handleClear = useCallback(() => {
+    setDocFile(null);
   }, []);
 
-  const handleClearAll = useCallback(() => {
-    images.forEach((img) => URL.revokeObjectURL(img.url));
-    setImages([]);
-  }, [images]);
+
 
   const handleConvert = useCallback(async () => {
-    if (!images.length) return;
+    if (!docFile) {
+      toast.error("Please select a document first");
+      return;
+    }
 
     setLoading(true);
 
     try {
+      const arrayBuffer = await docFile.arrayBuffer();
       const pdf = new jsPDF();
 
-      for (let i = 0; i < images.length; i++) {
-        const img = images[i];
-        const imgEl = new Image();
-        imgEl.src = img.url;
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      const margin = 15;
+      const maxWidth = pageWidth - 2 * margin;
+      const lineHeight = 7;
+      const fontSize = 11;
 
-        await new Promise((resolve) => {
-          imgEl.onload = () => {
-            const pw = pdf.internal.pageSize.getWidth();
-            const ph = pdf.internal.pageSize.getHeight();
+      pdf.setFontSize(fontSize);
 
-            const ratio = Math.min(pw / imgEl.width, ph / imgEl.height);
-            const w = imgEl.width * ratio;
-            const h = imgEl.height * ratio;
+      // Extract text from the document (basic implementation)
+      const uint8Array = new Uint8Array(arrayBuffer);
+      const text = new TextDecoder().decode(uint8Array);
 
-            if (i > 0) pdf.addPage();
+      // Filter and split text into lines
+      const lines = text
+        .split(/\n/)
+        .filter((line) => line.trim())
+        .slice(0, 100); // Limit to 100 lines for demo
 
-            pdf.addImage(img.url, "JPEG", (pw - w) / 2, (ph - h) / 2, w, h);
+      let yPosition = margin;
 
-            resolve();
-          };
-        });
+      for (const line of lines) {
+        const wrappedText = pdf.splitTextToSize(line, maxWidth);
+
+        for (const wrappedLine of wrappedText) {
+          if (yPosition + lineHeight > pageHeight - margin) {
+            pdf.addPage();
+            yPosition = margin;
+          }
+
+          pdf.text(wrappedLine, margin, yPosition);
+          yPosition += lineHeight;
+        }
       }
 
-      pdf.save("images.pdf");
-
-      toast.success("PDF created successfully!");
-
+      pdf.save(`${docFile.name.split(".")[0]}.pdf`);
+      toast.success("Document converted to PDF!");
+      setDocFile(null);
     } catch (error) {
-      toast.error("Conversion failed");
+      console.error(error);
+      toast.error("Conversion failed. Please try another file.");
     } finally {
       setLoading(false);
     }
-  }, [images]);
+  }, [docFile]);
 
   return (
     <div>
-      <DropZone onFilesAdded={handleFilesAdded} />
+      {/* Upload */}
+      <motion.label
+        htmlFor="doc-input"
+        className="flex flex-col items-center justify-center w-full min-h-[200px] rounded-xl border-2 border-dashed border-muted-foreground/30 hover:border-primary/60 hover:bg-primary/5 cursor-pointer transition-all"
+        whileHover={{ scale: 1.01 }}
+      >
+        <input
+          id="doc-input"
+          type="file"
+          accept=".docx,.doc"
+          className="hidden"
+          onChange={handleFileChange}
+        />
 
-      {images.length > 0 && (
+        <div className="p-4 rounded-full bg-primary/10 border border-primary/20 mb-3">
+          <FileUp className="w-8 h-8 text-primary" />
+        </div>
+
+        <p className="text-lg font-heading font-semibold text-foreground">
+          {docFile ? docFile.name : "Upload a Word document"}
+        </p>
+
+        {!docFile && (
+          <p className="text-sm text-muted-foreground mt-1">(.docx or .doc)</p>
+        )}
+      </motion.label>
+
+      {docFile && (
         <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          className="mt-6"
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mt-6 glass rounded-xl p-6 glow-border"
         >
           <div className="flex items-center justify-between mb-4">
-            <p className="text-sm font-heading font-medium text-foreground">
-              {images.length} {images.length === 1 ? "image" : "images"}
-            </p>
+            <div className="flex items-center gap-3">
+              <CheckCircle2 className="w-5 h-5 text-green-500" />
+              <div>
+                <p className="font-heading font-semibold text-foreground">
+                  Document ready to convert
+                </p>
+                <p className="text-sm text-muted-foreground">{docFile.name}</p>
+              </div>
+            </div>
 
             <Button
               variant="ghost"
               size="sm"
-              onClick={handleClearAll}
-              className="text-destructive hover:text-destructive hover:bg-destructive/10"
+              onClick={handleClear}
+              className="text-muted-foreground hover:text-foreground"
             >
-              <Trash2 className="w-4 h-4 mr-1" />
-              Clear all
+              Change
             </Button>
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
-            <AnimatePresence mode="popLayout">
-              {images.map((img, i) => (
-                <ImagePreview
-                  key={img.url}
-                  file={img.file}
-                  url={img.url}
-                  index={i}
-                  onRemove={handleRemove}
-                />
-              ))}
-            </AnimatePresence>
-          </div>
-
-          <div className="mt-6 flex justify-center">
-            <ConvertButton
-              disabled={false}
-              loading={loading}
-              count={images.length}
+          <div className="flex gap-3">
+            <Button
               onClick={handleConvert}
-            />
+              disabled={loading}
+              className="flex-1 bg-primary text-primary-foreground hover:bg-primary/90"
+            >
+              {loading ? (
+                <Loader2 className="w-4 h-4 animate-spin mr-2" />
+              ) : null}
+              {loading ? "Converting..." : "Convert to PDF"}
+            </Button>
           </div>
         </motion.div>
       )}
@@ -132,4 +170,4 @@ const ImageToPdf = () => {
   );
 };
 
-export default ImageToPdf;
+export default WordToPdf;

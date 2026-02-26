@@ -70,20 +70,36 @@ const ImageToPdf = () => {
         const imgEl = new Image();
         imgEl.src = img.url;
 
-        await new Promise((resolve) => {
-          imgEl.onload = () => {
-            const pw = pdf.internal.pageSize.getWidth();
-            const ph = pdf.internal.pageSize.getHeight();
+        await new Promise((resolve, reject) => {
+          imgEl.onload = async () => {
+            try {
+              const pw = pdf.internal.pageSize.getWidth();
+              const ph = pdf.internal.pageSize.getHeight();
 
-            const ratio = Math.min(pw / imgEl.width, ph / imgEl.height);
-            const w = imgEl.width * ratio;
-            const h = imgEl.height * ratio;
+              const ratio = Math.min(pw / imgEl.width, ph / imgEl.height);
+              const w = imgEl.width * ratio;
+              const h = imgEl.height * ratio;
 
-            if (i > 0) pdf.addPage();
+              if (i > 0) pdf.addPage();
 
-            pdf.addImage(img.url, "JPEG", (pw - w) / 2, (ph - h) / 2, w, h);
+              // Convert image to canvas data URL for better compatibility
+              const canvas = document.createElement("canvas");
+              canvas.width = imgEl.width;
+              canvas.height = imgEl.height;
+              const ctx = canvas.getContext("2d");
+              ctx.drawImage(imgEl, 0, 0);
+              const imgData = canvas.toDataURL("image/jpeg", 0.95);
 
-            resolve();
+              pdf.addImage(imgData, "JPEG", (pw - w) / 2, (ph - h) / 2, w, h);
+
+              resolve();
+            } catch (err) {
+              reject(err);
+            }
+          };
+
+          imgEl.onerror = () => {
+            reject(new Error("Failed to load image"));
           };
         });
       }
@@ -91,8 +107,9 @@ const ImageToPdf = () => {
       pdf.save("images.pdf");
 
       toast.success("PDF created successfully!");
-    } catch {
+    } catch (err) {
       toast.error("Conversion failed");
+      console.error(err);
     } finally {
       setLoading(false);
     }

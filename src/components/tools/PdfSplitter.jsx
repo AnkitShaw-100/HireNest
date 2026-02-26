@@ -21,23 +21,34 @@ const PdfSplitter = () => {
       return;
     }
 
-    setPdfFile(file);
+    try {
+      setPdfFile(file);
 
-    const bytes = await file.arrayBuffer();
-    const pdf = await PDFDocument.load(bytes);
-    const count = pdf.getPageCount();
+      const bytes = await file.arrayBuffer();
+      const pdf = await PDFDocument.load(bytes);
+      const count = pdf.getPageCount();
 
-    setPageCount(count);
-    setSplitFrom(1);
-    setSplitTo(count);
+      setPageCount(count);
+      setSplitFrom(1);
+      setSplitTo(count);
 
-    toast.success(`PDF loaded — ${count} pages`);
+      toast.success(`PDF loaded — ${count} pages`);
+    } catch (error) {
+      console.error(error);
+      toast.error("Failed to load PDF. Please try another file.");
+      setPdfFile(null);
+    }
 
     e.target.value = "";
   }, []);
 
   const handleSplit = useCallback(async () => {
     if (!pdfFile) return;
+
+    if (splitFrom > splitTo) {
+      toast.error("'From' page must be less than or equal to 'To' page");
+      return;
+    }
 
     setLoading(true);
 
@@ -46,12 +57,16 @@ const PdfSplitter = () => {
       const srcPdf = await PDFDocument.load(bytes);
       const newPdf = await PDFDocument.create();
 
-      const pages = await newPdf.copyPages(
-        srcPdf,
-        Array.from({ length: splitTo - splitFrom + 1 }, (_, i) => splitFrom - 1 + i)
+      const pageIndices = Array.from(
+        { length: splitTo - splitFrom + 1 },
+        (_, i) => splitFrom - 1 + i
       );
 
-      pages.forEach((p) => newPdf.addPage(p));
+      const pages = await newPdf.copyPages(srcPdf, pageIndices);
+
+      pages.forEach((page) => {
+        newPdf.addPage(page);
+      });
 
       const pdfBytes = await newPdf.save();
 
@@ -61,8 +76,9 @@ const PdfSplitter = () => {
       );
 
       toast.success("PDF split successfully!");
-    } catch {
-      toast.error("Split failed");
+    } catch (error) {
+      console.error(error);
+      toast.error("Failed to split PDF. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -92,8 +108,9 @@ const PdfSplitter = () => {
       }
 
       toast.success(`Extracted ${srcPdf.getPageCount()} pages!`);
-    } catch {
-      toast.error("Extraction failed");
+    } catch (error) {
+      console.error(error);
+      toast.error("Failed to extract pages. Please try again.");
     } finally {
       setLoading(false);
     }
